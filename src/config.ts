@@ -16,6 +16,11 @@ const schema = z.object({
   GEMINI_API_KEY: z.string().min(1),
   GEMINI_MODEL: z.string().default('gemini-2.0-flash'),
 
+  // Groq is used for text diagnosis + translation (high-frequency ops).
+  // Vision stays on Gemini. Groq's free tier has 14400 RPD vs Gemini's 1000.
+  GROQ_API_KEY: z.string().min(1),
+  GROQ_TEXT_MODEL: z.string().default('llama-3.3-70b-versatile'),
+
   S3_ENDPOINT: z.string().optional(),
   S3_ACCESS_KEY: z.string().optional(),
   S3_SECRET_KEY: z.string().optional(),
