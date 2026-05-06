@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(npx nest *)",
+      "PowerShell(Get-Command node, npm, docker, ngrok -ErrorAction SilentlyContinue)",
+      "PowerShell($tools = 'node','npm','docker','ngrok'; foreach \\($t in $tools\\) { $cmd = Get-Command $t -ErrorAction SilentlyContinue; if \\($cmd\\) { Write-Output \"$t : FOUND at $\\($cmd.Source\\)\" } else { Write-Output \"$t : NOT FOUND\" } })",
+      "PowerShell(node --version)",
+      "PowerShell(npm --version)",
+      "PowerShell(ngrok version)",
+      "Bash(mkdir -p dist)",
+      "Bash(echo \"test\")",
+      "Bash(rm -f tsconfig.tsbuildinfo)",
+      "Bash(rm -rf dist)",
+      "Bash(curl -i \"http://localhost:3000/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=any-strong-random-string-12345&hub.challenge=test123\")",
+      "Bash(curl -i \"http://localhost:3000/api/products\")",
+      "Bash(rm -f /tmp/server.log)",
+      "Bash(PORT=3001 node dist/main.js)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" \"http://localhost:3001/api/products\")",
+      "Read(//tmp/**)",
+      "Bash(awk -F= '/^\\(WHATSAPP_|ANTHROPIC_API_KEY\\)/ {print $1 \": \" \\(length\\($2\\) > 0 ? \"set \\(\" length\\($2\\) \" chars\\)\" : \"EMPTY\"\\)}' .env)",
+      "Bash(npx ts-node *)",
+      "PowerShell($conn = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if \\($conn\\) { $proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue; Write-Output \"Port 3000 owned by: PID=$\\($conn.OwningProcess\\) Name=$\\($proc.ProcessName\\) Path=$\\($proc.Path\\)\" } else { Write-Output \"Nothing listening on port 3000\" })",
+      "Bash(npm uninstall *)"
+    ]
+  }
+}

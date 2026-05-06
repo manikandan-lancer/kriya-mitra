@@ -1,0 +1,37 @@
+# Fly.io app configuration for Kriya Mitra backend.
+# Deploy with: fly deploy
+# Logs: fly logs
+# SSH in: fly ssh console
+# Set secrets: fly secrets set KEY=value
+
+app = "kriya-mitra"          # change if this name is taken; fly will tell you
+primary_region = "bom"        # Mumbai - lowest latency for Indian farmers
+
+[build]
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # Auto-stop when idle for 5 minutes saves the free credit; auto-start within
+  # ~1 second when a request arrives. Webhook reliability stays good.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/api/products"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1
