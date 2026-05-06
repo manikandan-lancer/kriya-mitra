@@ -5,6 +5,7 @@ import {
   IMAGE_DIAGNOSIS_PROMPT,
   PRODUCT_PICK_PROMPT,
   SYSTEM_PROMPT,
+  TEXT_DIAGNOSIS_PROMPT,
   TRANSLATE_PROMPT,
 } from './prompts';
 
@@ -42,6 +43,13 @@ export type ProductPickInput = {
 export type ProductPickResult =
   | { product_id: string; why_this_product: string; escalation_trigger: string }
   | { product_id: null; reason: string };
+
+export type TextDiagnosisResult = {
+  crop_guess: string | null;
+  candidates: VisionCandidate[];
+  needs_more_info: string[];
+  severity_hint: 'low' | 'medium' | 'high' | 'critical';
+};
 
 @Injectable()
 export class AiService {
@@ -89,6 +97,44 @@ export class AiService {
       return parsed;
     } catch (e) {
       this.logger.error(`vision call failed: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Text-only diagnosis. Used when the farmer types a description (no photo).
+   * Confidence is generally lower than the image path; the recommendation engine's
+   * threshold then decides whether to recommend a product or escalate.
+   */
+  async diagnoseText(args: {
+    cropHint?: string;
+    text: string;
+    farmerLang?: string;
+  }): Promise<TextDiagnosisResult | null> {
+    const userText = [
+      args.cropHint ? `Crop reported by farmer: ${args.cropHint}` : 'Crop not specified.',
+      args.farmerLang ? `Farmer's preferred language: ${args.farmerLang}` : '',
+      `Farmer says: "${args.text}"`,
+      'Diagnose the crop problem from this description. Return JSON only.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    try {
+      const model = this.modelFor({
+        systemInstruction: `${SYSTEM_PROMPT}\n\n${TEXT_DIAGNOSIS_PROMPT}`,
+        json: true,
+      });
+      const result = await model.generateContent(userText);
+      const text = result.response.text();
+      const parsed = this.tryParseJson<TextDiagnosisResult>(text);
+      if (!parsed) {
+        this.logger.warn(`text diagnosis JSON parse failed: ${text?.slice(0, 200)}`);
+        return null;
+      }
+      return parsed;
+    } catch (e) {
+      this.logger.error(`text diagnosis call failed: ${(e as Error).message}`);
       return null;
     }
   }

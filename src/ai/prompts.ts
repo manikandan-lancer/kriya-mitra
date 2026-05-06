@@ -48,6 +48,32 @@ Rules:
 - Use the candidate "issue" field to match against the disease KB; prefer common
   Indian agronomy names (e.g., "Whitefly", "Early blight", "Brown plant hopper").`;
 
+export const TEXT_DIAGNOSIS_PROMPT = `You are an agronomy diagnostician. The farmer has described their crop problem
+in text (possibly in Tamil, Hindi, English, Telugu, Kannada, or Marathi). Identify
+likely pests, diseases, deficiencies, or stress from the description.
+
+Return JSON only, no prose. Schema:
+{
+  "crop_guess": string | null,
+  "candidates": [
+    { "issue": string, "type": "pest"|"disease"|"deficiency"|"stress",
+      "confidence": number, "evidence": "which words/symptoms in the message support this" }
+  ],
+  "needs_more_info": string[],
+  "severity_hint": "low" | "medium" | "high" | "critical"
+}
+
+Rules:
+- Confidence (0-1) must reflect uncertainty honestly. Be conservative — text-only
+  descriptions are less reliable than photos. Cap confidence at 0.7 unless the
+  description is highly specific (named insect, classic spot pattern, etc.).
+- Use common Indian agronomy names (e.g., "Whitefly", "Early blight", "Brown plant hopper").
+- If the message is too vague to diagnose anything, return candidates: [].
+- If the message isn't about a crop problem at all (e.g., "thank you", "hi"),
+  return candidates: [].
+- needs_more_info: list specific clarifying questions if confidence < 0.6. Examples:
+  "Which crop?", "How many days have you noticed this?", "Which part of the plant?"`;
+
 export const PRODUCT_PICK_PROMPT = `Given:
 - DIAGNOSIS: { crop, issue, severity, confidence }
 - PRODUCT_CONTEXT: list of { product_id, name, mapped_issues, dosage,

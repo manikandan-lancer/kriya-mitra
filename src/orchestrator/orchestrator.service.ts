@@ -233,7 +233,20 @@ export class OrchestratorService {
       }
     }
 
-    // Plain text (no photo yet) -> ask for a photo. Phase 2 adds text-only triage.
+    if (msg.type === 'text' && msg.text?.body) {
+      const body = msg.text.body.trim();
+      // Very short messages (< 8 chars) likely aren't symptom descriptions —
+      // ask for a photo or detail, don't burn a Gemini call.
+      if (body.length < 8) {
+        await this.sendAndLog(farmer, convId, t('ASK_PHOTO', farmer.preferred_lang));
+        await this.conversations.setState(convId, 'AWAITING_CROP_CONTEXT');
+        return;
+      }
+      await this.handleTextSymptom(farmer, convId, body);
+      return;
+    }
+
+    // Anything else (audio, location, etc.) -> ask for photo or text description
     await this.sendAndLog(farmer, convId, t('ASK_PHOTO', farmer.preferred_lang));
     await this.conversations.setState(convId, 'AWAITING_CROP_CONTEXT');
   }
@@ -251,8 +264,7 @@ export class OrchestratorService {
     }
 
     // For the MVP we keep the image base64 in memory and persist a row in
-    // images with a placeholder s3_key. Wiring R2/S3 upload is straightforward
-    // (multer-s3 / aws-sdk) and slotted in here in the next iteration.
+    // images with a placeholder s3_key. Wire R2/S3 here in the next iteration.
     const imageRow = await this.db.one<{ id: string }>(
       `INSERT INTO images (farmer_id, conversation_id, s3_key, content_type)
        VALUES ($1, $2, $3, $4) RETURNING id`,
@@ -260,12 +272,7 @@ export class OrchestratorService {
     );
     const imageId = imageRow?.id ?? null;
 
-    const cropHint =
-      ((await this.db.one<{ context: { primary_crop?: string } }>(
-        'SELECT context FROM conversations WHERE id = $1',
-        [convId],
-      ))?.context?.primary_crop) ??
-      undefined;
+    const cropHint = await this.getCropHint(convId);
 
     const vision = await this.ai.diagnoseImage({
       imageBase64: media.buffer.toString('base64'),
@@ -286,15 +293,78 @@ export class OrchestratorService {
       return;
     }
 
-    const cropId = await this.diagnoses.lookupCropId(vision.crop_guess);
-    const top = vision.candidates[0];
+    await this.processDiagnosis({
+      farmer,
+      convId,
+      imageId,
+      cropGuess: vision.crop_guess,
+      candidates: vision.candidates,
+      severityHint: vision.severity_hint,
+    });
+  }
+
+  /**
+   * Text-only diagnosis path. The farmer describes the problem instead of
+   * sending a photo. Same recommendation engine, same verbatim-dosage rules.
+   */
+  private async handleTextSymptom(
+    farmer: Farmer,
+    convId: string,
+    text: string,
+  ): Promise<void> {
+    const cropHint = await this.getCropHint(convId);
+    const result = await this.ai.diagnoseText({
+      cropHint,
+      text,
+      farmerLang: farmer.preferred_lang ?? undefined,
+    });
+
+    this.logger.log(`text diagnosis result: ${JSON.stringify(result)?.slice(0, 800)}`);
+
+    if (!result || result.candidates.length === 0) {
+      // Either off-topic or too vague to diagnose. Ask for more detail / photo.
+      await this.sendAndLog(farmer, convId, t('TEXT_UNCLEAR', farmer.preferred_lang));
+      await this.conversations.setState(convId, 'AWAITING_CROP_CONTEXT');
+      return;
+    }
+
+    await this.processDiagnosis({
+      farmer,
+      convId,
+      imageId: null,
+      cropGuess: result.crop_guess,
+      candidates: result.candidates,
+      severityHint: result.severity_hint,
+    });
+  }
+
+  /**
+   * Shared post-diagnosis logic: DB lookup, persist diagnosis, resolve a Kriya
+   * recommendation, send the card OR escalate. Used by both the image and text
+   * diagnosis paths so the safety rules + recommendation engine are identical.
+   */
+  private async processDiagnosis(args: {
+    farmer: Farmer;
+    convId: string;
+    imageId: string | null;
+    cropGuess: string | null;
+    candidates: Array<{
+      issue: string;
+      type: 'pest' | 'disease' | 'deficiency' | 'stress';
+      confidence: number;
+      evidence: string;
+    }>;
+    severityHint: 'low' | 'medium' | 'high' | 'critical';
+  }): Promise<void> {
+    const cropId = await this.diagnoses.lookupCropId(args.cropGuess);
+    const top = args.candidates[0];
     const issueLookup = await this.diagnoses.lookupIssueId({
       cropId,
       label: top.issue,
     });
 
     const candidates = await Promise.all(
-      vision.candidates.map(async (c) => ({
+      args.candidates.map(async (c) => ({
         issue_id:
           (await this.diagnoses.lookupIssueId({ cropId, label: c.issue }))?.issue_id ?? null,
         label: c.issue,
@@ -305,28 +375,28 @@ export class OrchestratorService {
     );
 
     await this.diagnoses.create({
-      farmerId: farmer.id,
-      conversationId: convId,
-      imageId,
+      farmerId: args.farmer.id,
+      conversationId: args.convId,
+      imageId: args.imageId,
       cropId,
       candidates,
       topIssueId: issueLookup?.issue_id ?? null,
       topConfidence: top.confidence,
-      severityHint: vision.severity_hint,
-      modelName: this.config.get<string>('ANTHROPIC_MODEL') ?? 'claude-sonnet-4-6',
+      severityHint: args.severityHint,
+      modelName: this.config.get<string>('GEMINI_MODEL') ?? 'gemini-2.0-flash',
     });
 
     const outcome = await this.recommendations.resolve({
       cropIssueId: issueLookup?.issue_id ?? null,
       confidence: top.confidence,
-      severity: issueLookup?.severity ?? vision.severity_hint,
+      severity: issueLookup?.severity ?? args.severityHint,
     });
 
     if (outcome.kind === 'no_match') {
-      await this.sendAndLog(farmer, convId, t('NO_PRODUCT', farmer.preferred_lang));
+      await this.sendAndLog(args.farmer, args.convId, t('NO_PRODUCT', args.farmer.preferred_lang));
       await this.triggerEscalation(
-        farmer,
-        convId,
+        args.farmer,
+        args.convId,
         outcome.reason === 'low_confidence' ? 'low_confidence' : 'no_approved_product',
         'p2',
       );
@@ -336,8 +406,8 @@ export class OrchestratorService {
     const card = outcome.card;
     const forceEscalate = outcome.kind === 'critical';
     await this.sendDiagnosisCard({
-      farmer,
-      convId,
+      farmer: args.farmer,
+      convId: args.convId,
       issueLabel: top.issue,
       confidence: top.confidence,
       card,
@@ -345,8 +415,16 @@ export class OrchestratorService {
     });
 
     if (forceEscalate) {
-      await this.triggerEscalation(farmer, convId, 'critical_severity', 'p1');
+      await this.triggerEscalation(args.farmer, args.convId, 'critical_severity', 'p1');
     }
+  }
+
+  private async getCropHint(convId: string): Promise<string | undefined> {
+    const r = await this.db.one<{ context: { primary_crop?: string } }>(
+      'SELECT context FROM conversations WHERE id = $1',
+      [convId],
+    );
+    return r?.context?.primary_crop ?? undefined;
   }
 
   private async sendDiagnosisCard(args: {
