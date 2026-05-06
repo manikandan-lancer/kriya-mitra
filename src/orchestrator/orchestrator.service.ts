@@ -453,7 +453,7 @@ export class OrchestratorService {
       ],
       {
         headerImageUrl: args.card.product_image_url ?? undefined,
-        footer: 'Kriya Mitra • Always consult an agronomist for severe cases',
+        footer: 'Kriya Mitra • www.kriya.ltd',
       },
     );
     await this.conversations.appendOutbound({
@@ -496,16 +496,18 @@ export class OrchestratorService {
       (card.precautions.length
         ? card.precautions.join('. ') + '.'
         : 'Wear mask and gloves while spraying.') +
-      `\n\n${card.notes_en ?? ''}`.trimEnd();
+      (card.notes_en ? `\n\n${card.notes_en}` : '');
 
-    const consult = '\n\n— ' + 'Consult an agronomist if symptoms continue or worsen.';
+    const websiteLine = `\n\n🌐 More info: https://www.kriya.ltd/`;
+    const consult = '\n\n— Consult an agronomist if symptoms continue or worsen.';
 
-    if (lang === 'en') return wrapperEn + consult;
+    if (lang === 'en') return wrapperEn + websiteLine + consult;
 
-    // Translate the wrapper. Numbers, units, product names are preserved by the prompt.
+    // Translate the wrapper. Numbers, units, product names, and the URL are
+    // preserved by the prompt rules.
     const translated = await this.ai.translate(wrapperEn, 'English', this.langName(lang));
     const consultLine = '\n\n— ' + t('CONSULT_LINE', lang);
-    return translated + consultLine;
+    return translated + websiteLine + consultLine;
   }
 
   private async handleFindDealer(farmer: Farmer, convId: string): Promise<void> {
