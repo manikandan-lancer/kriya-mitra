@@ -221,18 +221,6 @@ export class OrchestratorService {
       return;
     }
 
-    if (msg.type === 'interactive' && msg.interactive?.button_reply?.id) {
-      const btn = msg.interactive.button_reply.id;
-      if (btn === 'TALK_AGRO') {
-        await this.triggerEscalation(farmer, convId, 'farmer_request', 'p2');
-        return;
-      }
-      if (btn === 'FIND_DEALER') {
-        await this.handleFindDealer(farmer, convId);
-        return;
-      }
-    }
-
     if (msg.type === 'text' && msg.text?.body) {
       const body = msg.text.body.trim();
       // Very short messages (< 8 chars) likely aren't symptom descriptions —
@@ -444,23 +432,12 @@ export class OrchestratorService {
       args.critical,
     );
 
-    const id = await this.whatsapp.sendButtons(
-      args.farmer.whatsapp_number,
-      body,
-      [
-        { id: 'FIND_DEALER', title: '🛒 Find Dealer' },
-        { id: 'TALK_AGRO', title: '👨‍🌾 Talk to Expert' },
-      ],
-      {
-        headerImageUrl: args.card.product_image_url ?? undefined,
-        footer: 'Kriya Mitra • www.kriya.ltd',
-      },
-    );
+    const id = await this.whatsapp.sendText(args.farmer.whatsapp_number, body);
     await this.conversations.appendOutbound({
       conversationId: args.convId,
       waMessageId: id,
       sender: 'bot',
-      contentType: 'interactive',
+      contentType: 'text',
       text: body,
       metadata: {
         product_id: args.card.product_id,
