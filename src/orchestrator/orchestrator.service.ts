@@ -276,14 +276,27 @@ export class OrchestratorService {
 
     this.logger.log(`vision result: ${JSON.stringify(vision)?.slice(0, 800)}`);
 
+    const caption = msg.image?.caption?.trim();
+    const hasUsefulCaption = !!caption && caption.length >= 8;
+
     if (!vision) {
-      // Vision API call itself failed
+      // Vision API call failed (rate limit, network, etc).
+      // Fall back to text diagnosis using the caption if it has enough detail.
+      if (hasUsefulCaption) {
+        this.logger.log('vision call failed; falling back to text diagnosis from caption');
+        await this.handleTextSymptom(farmer, convId, caption!);
+        return;
+      }
       await this.sendAndLog(farmer, convId, t('IMAGE_BAD', farmer.preferred_lang));
       return;
     }
 
     if (vision.image_quality === 'wrong_subject') {
       // Genuinely not a plant photo
+      if (hasUsefulCaption) {
+        await this.handleTextSymptom(farmer, convId, caption!);
+        return;
+      }
       await this.sendAndLog(farmer, convId, t('IMAGE_BAD', farmer.preferred_lang));
       return;
     }
@@ -291,9 +304,9 @@ export class OrchestratorService {
     if (vision.candidates.length === 0) {
       // Image was usable but Gemini couldn't identify any issue. Try text
       // fallback if the farmer included a caption, otherwise ask for detail.
-      if (msg.image?.caption && msg.image.caption.trim().length >= 8) {
+      if (hasUsefulCaption) {
         this.logger.log('vision returned no candidates; falling back to text diagnosis from caption');
-        await this.handleTextSymptom(farmer, convId, msg.image.caption.trim());
+        await this.handleTextSymptom(farmer, convId, caption!);
         return;
       }
       await this.sendAndLog(farmer, convId, t('IMAGE_BAD', farmer.preferred_lang));
