@@ -276,11 +276,32 @@ export class OrchestratorService {
 
     this.logger.log(`vision result: ${JSON.stringify(vision)?.slice(0, 800)}`);
 
-    if (!vision || vision.image_quality !== 'good' || vision.candidates.length === 0) {
+    if (!vision) {
+      // Vision API call itself failed
       await this.sendAndLog(farmer, convId, t('IMAGE_BAD', farmer.preferred_lang));
       return;
     }
 
+    if (vision.image_quality === 'wrong_subject') {
+      // Genuinely not a plant photo
+      await this.sendAndLog(farmer, convId, t('IMAGE_BAD', farmer.preferred_lang));
+      return;
+    }
+
+    if (vision.candidates.length === 0) {
+      // Image was usable but Gemini couldn't identify any issue. Try text
+      // fallback if the farmer included a caption, otherwise ask for detail.
+      if (msg.image?.caption && msg.image.caption.trim().length >= 8) {
+        this.logger.log('vision returned no candidates; falling back to text diagnosis from caption');
+        await this.handleTextSymptom(farmer, convId, msg.image.caption.trim());
+        return;
+      }
+      await this.sendAndLog(farmer, convId, t('IMAGE_BAD', farmer.preferred_lang));
+      return;
+    }
+
+    // Even for "blurry"/"too_far"/"too_dark" — still process. The recommendation
+    // engine's confidence threshold will escalate if the diagnosis is too weak.
     await this.processDiagnosis({
       farmer,
       convId,

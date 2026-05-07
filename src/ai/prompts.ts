@@ -42,11 +42,19 @@ Return JSON only, no prose. Schema:
 }
 
 Rules:
-- If image_quality is not "good", set candidates to [] and ask for a better photo.
-- Confidence (0-1) must reflect uncertainty honestly. Do not be overconfident.
-- Never guess a crop you cannot see; return null instead.
+- ONLY set candidates to [] in two cases: (a) image_quality = "wrong_subject"
+  (clearly not a plant/crop), or (b) you genuinely cannot see anything diagnostic.
+- For "blurry", "too_dark", "too_far" images: STILL provide candidates if you can
+  reasonably guess the issue. Just lower the confidence accordingly (cap at 0.5
+  for poor-quality images, 0.7 for moderate, 0.9 for clear shots).
+- Confidence (0-1) must reflect uncertainty honestly.
+- Never guess a crop you cannot see; return null for crop_guess instead.
 - Use the candidate "issue" field to match against the disease KB; prefer common
-  Indian agronomy names (e.g., "Whitefly", "Early blight", "Brown plant hopper").`;
+  Indian agronomy names (e.g., "Whitefly", "Early blight", "Brown plant hopper",
+  "Thrips", "Bollworm", "Leaf miner", "Powdery mildew", "Aphid", "Mealybug").
+- Always provide at least one candidate when you see a plant with any visible
+  issue — even speculative ones with low confidence are useful (the downstream
+  pipeline filters by confidence threshold).`;
 
 export const TEXT_DIAGNOSIS_PROMPT = `You are an agronomy diagnostician. The farmer has described their crop problem
 in text (possibly in Tamil, Hindi, English, Telugu, Kannada, or Marathi). Identify
